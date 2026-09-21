@@ -214,30 +214,59 @@ if __name__ == "__main__":
         while not login_successful:
             try:
                 login_method = ""
+                import json as _json
+
+                cookies_json = os.getenv("UDEMY_COOKIES") or os.getenv(
+                    "UDEMY_COOKIES_JSON"
+                )
                 client_id = os.getenv("UDEMY_CLIENT_ID")
                 access_token = os.getenv("UDEMY_ACCESS_TOKEN")
+                csrf_token = (
+                    os.getenv("UDEMY_CSRF_TOKEN")
+                    or os.getenv("UDEMY_CSRFTOKEN")
+                    or os.getenv("UDEMY_CSRF")
+                )
                 env_email = os.getenv("UDEMY_EMAIL") or os.getenv("EMAIL")
                 env_password = os.getenv("UDEMY_PASSWORD") or os.getenv("PASSWORD")
 
-                # 優先度 1: 透過環境變數傳入 Cookie Token（建議解法）
-                if client_id and access_token:
+                # 優先度 1: 透過環境變數傳入完整 Cookie JSON（GitHub Actions 建議）
+                # 格式: {"client_id": "...", "access_token": "...", "csrftoken": "...", ...}
+                if cookies_json:
+                    login_method = "Environment Cookies JSON"
+                    try:
+                        udemy.cookie_dict = _json.loads(cookies_json)
+                    except Exception as e:
+                        raise LoginException(f"UDEMY_COOKIES JSON 解析失敗: {e}")
+                    if "access_token" not in udemy.cookie_dict:
+                        raise LoginException(
+                            "UDEMY_COOKIES 缺少 access_token，請重新匯出完整 cookies"
+                        )
+                # 優先度 2: 透過環境變數傳入三個關鍵 Cookie
+                elif client_id and access_token:
                     login_method = "Environment Token Cookies"
-                    udemy.session.cookies.set("client_id", client_id, domain=".udemy.com")
-                    udemy.session.cookies.set("access_token", access_token, domain=".udemy.com")
-                # 優先度 2: 本機瀏覽器 Cookie
+                    if not csrf_token:
+                        logger.warning(
+                            "缺少 UDEMY_CSRF_TOKEN：讀取課程可運作，但結帳 (bulk_checkout) 需要 csrftoken，請務必補上"
+                        )
+                        console.print(
+                            "[yellow]警告: 缺少 UDEMY_CSRF_TOKEN，結帳可能會失敗[/yellow]"
+                        )
+                    # get_session_info() 會用 cookie_dict 建立 session，這裡只要設定 dict 即可
+                    udemy.make_cookies(client_id, access_token, csrf_token or "")
+                # 優先度 3: 本機瀏覽器 Cookie
                 elif udemy.settings.get("use_browser_cookies"):
                     with console.status(
                         "[cyan]Trying to login using browser cookies...[/cyan]"
                     ):
                         udemy.fetch_cookies()
                         login_method = "Browser Cookies"
-                # 優先度 3: 帳密登入（環境變數）
+                # 優先度 4: 帳密登入（環境變數）
                 elif env_email and env_password:
                     email, password = env_email, env_password
                     login_method = "Environment Variables"
                     with console.status("[cyan]Logging in...[/cyan]"):
                         udemy.manual_login(email, password)
-                # 優先度 4: 儲存的設定檔帳密
+                # 優先度 5: 儲存的設定檔帳密
                 elif udemy.settings.get("email") and udemy.settings.get("password"):
                     email, password = (
                         udemy.settings["email"],
@@ -246,7 +275,7 @@ if __name__ == "__main__":
                     login_method = "Saved Email and Password"
                     with console.status("[cyan]Logging in...[/cyan]"):
                         udemy.manual_login(email, password)
-                # 優先度 5: 終端機互動輸入
+                # 優先度 6: 終端機互動輸入
                 else:
                     if not sys.stdin.isatty():
                         raise LoginException("Non-interactive shell and no credentials provided.")
