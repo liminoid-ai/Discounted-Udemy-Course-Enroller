@@ -2,6 +2,7 @@ import threading
 import time
 import traceback
 import sys
+import os
 from datetime import datetime
 
 from rich.console import Console
@@ -224,13 +225,20 @@ if __name__ == "__main__":
         while not login_successful:
             try:
                 login_method = ""
-                if udemy.settings["use_browser_cookies"]:
+                # 優先檢查環境變數 / GitHub Secrets (UDEMY_EMAIL/UDEMY_PASSWORD 或 EMAIL/PASSWORD)
+                env_email = os.getenv("UDEMY_EMAIL") or os.getenv("EMAIL")
+                env_password = os.getenv("UDEMY_PASSWORD") or os.getenv("PASSWORD")
+
+                if udemy.settings.get("use_browser_cookies"):
                     with console.status(
                         "[cyan]Trying to login using browser cookies...[/cyan]"
                     ):
                         udemy.fetch_cookies()
                         login_method = "Browser Cookies"
-                elif udemy.settings["email"] and udemy.settings["password"]:
+                elif env_email and env_password:
+                    email, password = env_email, env_password
+                    login_method = "Environment Variables / Secrets"
+                elif udemy.settings.get("email") and udemy.settings.get("password"):
                     email, password = (
                         udemy.settings["email"],
                         udemy.settings["password"],
@@ -243,7 +251,7 @@ if __name__ == "__main__":
 
                 logger.info(f"Trying to login using {login_method}")
                 console.print(f"[cyan]Trying to login using {login_method}...[/cyan]")
-                if "Email" in login_method:
+                if "Email" in login_method or "Environment Variables" in login_method:
                     with console.status("[cyan]Logging in...[/cyan]"):
                         udemy.manual_login(email, password)
 
@@ -261,8 +269,11 @@ if __name__ == "__main__":
                 if "Browser" in login_method:
                     console.print("[red]Can't login using cookies[/red]")
                     udemy.settings["use_browser_cookies"] = False
-                elif "Email" in login_method:
+                elif "Email" in login_method or "Environment Variables" in login_method:
                     udemy.settings["email"], udemy.settings["password"] = "", ""
+                    # 避免在 CI 循環重試時無限卡住或報錯
+                    if not sys.stdin.isatty():
+                        sys.exit(1)
 
         udemy.save_settings()
         console.print(f"[bold green]Logged in as {udemy.display_name}[/bold green]")
@@ -274,8 +285,9 @@ if __name__ == "__main__":
             console.print(
                 "[yellow]You need to select at least one site, language, and category in the settings.[/yellow]"
             )
-            console.input("\nPress Enter to exit...")
-            exit()
+            if sys.stdin.isatty():
+                console.input("\nPress Enter to exit...")
+            exit(1)
 
         scraper = Scraper(udemy.sites)
 
