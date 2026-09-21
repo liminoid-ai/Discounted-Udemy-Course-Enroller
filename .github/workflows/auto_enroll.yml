@@ -27,7 +27,7 @@ jobs:
     
     - name: Run enrollment script
       env:
-        UDEMY_EMAIL: ${{ secrets.UDEMY_EMAIL }}
-        UDEMY_PASSWORD: ${{ secrets.UDEMY_PASSWORD }}
+        UDEMY_CLIENT_ID: ${{ secrets.UDEMY_CLIENT_ID }}
+        UDEMY_ACCESS_TOKEN: ${{ secrets.UDEMY_ACCESS_TOKEN }}
       run: |
         python cli.py
