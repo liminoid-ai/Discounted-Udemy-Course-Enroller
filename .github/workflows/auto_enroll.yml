@@ -34,5 +34,8 @@ jobs:
         UDEMY_CLIENT_ID: ${{ secrets.UDEMY_CLIENT_ID }}
         UDEMY_ACCESS_TOKEN: ${{ secrets.UDEMY_ACCESS_TOKEN }}
         UDEMY_CSRF_TOKEN: ${{ secrets.UDEMY_CSRF_TOKEN }}
+        # 只跑目前穩定的站，跳過 Courson / Course Joiner / E-next（上游改版擋爬蟲）
+        # 想全跑就把這行刪掉；想自訂就改成 ${{ secrets.UDEMY_SITES }} 並去設 secret
+        UDEMY_SITES: "Real Discount,Discudemy,Udemy Freebies,IDownloadCoupons,Course Vania"
       run: |
         python cli.py

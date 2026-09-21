@@ -189,7 +189,15 @@ def create_scraping_thread(site: str):
             raise Exception(f"Error in: {site}")
     except Exception:
         error = getattr(scraper, f"{code_name}_error", traceback.format_exc())
-        handle_error(f"Error in {site}", error=error, exit_program=True)
+        # GitHub Actions 上單一優惠站掛掉是常態（改版/擋爬蟲），跳過就好不要整單砍掉
+        handle_error(f"Error in {site}, skipping", error=error, exit_program=False)
+        try:
+            total = getattr(scraper, f"{code_name}_length", 100)
+            if not isinstance(total, int) or total <= 0:
+                total = 100
+            udemy.progress.update(task_id, completed=total, total=total)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
@@ -318,6 +326,24 @@ if __name__ == "__main__":
             if sys.stdin.isatty():
                 console.input("\nPress Enter to exit...")
             sys.exit(1)
+
+        # Actions 可用 UDEMY_SITES 覆寫要抓的站點，跳過目前壞掉的站
+        # e.g. UDEMY_SITES="Real Discount,Discudemy,Udemy Freebies,IDownloadCoupons,Course Vania"
+        sites_env = os.getenv("UDEMY_SITES")
+        if sites_env:
+            wanted = [s.strip() for s in sites_env.split(",") if s.strip()]
+            valid = [s for s in wanted if s in scraper_dict]
+            invalid = [s for s in wanted if s not in scraper_dict]
+            if invalid:
+                console.print(
+                    f"[yellow]警告: 未知的站點名稱會被忽略: {', '.join(invalid)}[/yellow]"
+                )
+            if valid:
+                udemy.sites = valid
+                logger.info(f"UDEMY_SITES override: {udemy.sites}")
+                console.print(
+                    f"[cyan]只抓取指定站點: {', '.join(udemy.sites)}[/cyan]"
+                )
 
         scraper = Scraper(udemy.sites)
 
