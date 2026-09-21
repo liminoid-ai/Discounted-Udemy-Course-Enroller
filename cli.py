@@ -27,14 +27,6 @@ console = Console()
 
 def handle_error(error_message, error=None, exit_program=True):
     logger.error(f"ERROR: {error_message}")
-    """
-    Handle errors consistently throughout the application.
-
-    Args:
-        error_message: User-friendly error message
-        error: The exception object (optional)
-        exit_program: Whether to exit the program after displaying the error (default: True)
-    """
     console.print(
         f"\n[bold white on red] ERROR [/bold white on red] [bold red]{error_message}[/bold red]"
     )
@@ -80,7 +72,6 @@ def create_header() -> Panel:
 
 def create_footer() -> Panel:
     """Create the footer panel."""
-
     return Panel(
         "Made with [bold magenta]:heart:[/bold magenta]  by techtanic",
         style="white on dark_blue",
@@ -91,7 +82,6 @@ def create_footer() -> Panel:
 
 def create_stats_panel(udemy: Udemy) -> Panel:
     """Create the statistics panel similar to the GUI version."""
-
     row1 = Table.grid(padding=3)
     row1.add_column(style="cyan", justify="right", width=22)
     row1.add_column(style="white", justify="left", width=15)
@@ -166,7 +156,6 @@ def create_course_panel(udemy: Udemy, total_courses: int) -> Panel:
 
 
 def create_scraping_thread(site: str):
-
     code_name = scraper_dict[site]
     task_id = udemy.progress.add_task(site, total=100)
     try:
@@ -225,49 +214,71 @@ if __name__ == "__main__":
         while not login_successful:
             try:
                 login_method = ""
-                if udemy.settings["use_browser_cookies"]:
+                client_id = os.getenv("UDEMY_CLIENT_ID")
+                access_token = os.getenv("UDEMY_ACCESS_TOKEN")
+                env_email = os.getenv("UDEMY_EMAIL") or os.getenv("EMAIL")
+                env_password = os.getenv("UDEMY_PASSWORD") or os.getenv("PASSWORD")
+
+                # 優先度 1: 透過環境變數傳入 Cookie Token（建議解法）
+                if client_id and access_token:
+                    login_method = "Environment Token Cookies"
+                    udemy.session.cookies.set("client_id", client_id, domain=".udemy.com")
+                    udemy.session.cookies.set("access_token", access_token, domain=".udemy.com")
+                # 優先度 2: 本機瀏覽器 Cookie
+                elif udemy.settings.get("use_browser_cookies"):
                     with console.status(
                         "[cyan]Trying to login using browser cookies...[/cyan]"
                     ):
                         udemy.fetch_cookies()
                         login_method = "Browser Cookies"
-                elif os.getenv('UDEMY_EMAIL') and os.getenv('UDEMY_PASSWORD'):
-                    email = os.getenv('UDEMY_EMAIL')
-                    password = os.getenv('UDEMY_PASSWORD')
+                # 優先度 3: 帳密登入（環境變數）
+                elif env_email and env_password:
+                    email, password = env_email, env_password
                     login_method = "Environment Variables"
                     with console.status("[cyan]Logging in...[/cyan]"):
                         udemy.manual_login(email, password)
+                # 優先度 4: 儲存的設定檔帳密
+                elif udemy.settings.get("email") and udemy.settings.get("password"):
+                    email, password = (
+                        udemy.settings["email"],
+                        udemy.settings["password"],
+                    )
+                    login_method = "Saved Email and Password"
+                    with console.status("[cyan]Logging in...[/cyan]"):
+                        udemy.manual_login(email, password)
+                # 優先度 5: 終端機互動輸入
                 else:
+                    if not sys.stdin.isatty():
+                        raise LoginException("Non-interactive shell and no credentials provided.")
                     email = console.input("[cyan]Email: [/cyan]")
                     password = console.input("[cyan]Password: [/cyan]")
                     login_method = "Email and Password"
+                    with console.status("[cyan]Logging in...[/cyan]"):
+                        udemy.manual_login(email, password)
 
                 logger.info(f"Trying to login using {login_method}")
                 console.print(f"[cyan]Trying to login using {login_method}...[/cyan]")
-                if "Email" in login_method:
-                    with console.status("[cyan]Logging in...[/cyan]"):
-                        udemy.manual_login(email, password)
 
                 with console.status("[cyan]Getting Enrolled Courses...[/cyan]"):
                     udemy.get_session_info()
 
-                if "Email" in login_method:
-                    udemy.settings["email"], udemy.settings["password"] = (
-                        email,
-                        password,
-                    )
                 login_successful = True
             except LoginException as e:
                 handle_error("Login error", error=e, exit_program=False)
+                # 若在 CI / 非互動終端機下登入失敗，立即退出防爆打 API
+                if not sys.stdin.isatty():
+                    logger.error("Login failed in non-interactive environment. Exiting to avoid rate-limiting.")
+                    sys.exit(1)
+
                 if "Browser" in login_method:
                     console.print("[red]Can't login using cookies[/red]")
                     udemy.settings["use_browser_cookies"] = False
-                elif "Email" in login_method:
+                else:
                     udemy.settings["email"], udemy.settings["password"] = "", ""
 
         udemy.save_settings()
         console.print(f"[bold green]Logged in as {udemy.display_name}[/bold green]")
-        logger.info(f"Logged in")
+        logger.info("Logged in")
 
         user_dumb = udemy.is_user_dumb()
         if user_dumb:
@@ -275,8 +286,9 @@ if __name__ == "__main__":
             console.print(
                 "[yellow]You need to select at least one site, language, and category in the settings.[/yellow]"
             )
-            console.input("\nPress Enter to exit...")
-            exit()
+            if sys.stdin.isatty():
+                console.input("\nPress Enter to exit...")
+            sys.exit(1)
 
         scraper = Scraper(udemy.sites)
 
